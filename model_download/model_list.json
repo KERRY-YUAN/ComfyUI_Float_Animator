@@ -1,0 +1,17 @@
+[
+    {
+        "Model": "float.pth",
+        "Address": "https://drive.google.com/file/d/1rvWuM12cyvNvBQNCLmG4Fr2L1rpjQBF0/view?usp=sharing",
+        "To": "models/Float/"
+    },
+    {
+        "Model": "wav2vec2-base-960h",
+        "Address": "https://huggingface.co/facebook/wav2vec2-base-960h",
+        "To": "models/Float/"
+    },
+    {
+        "Model": "wav2vec-english-speech-emotion-recognition",
+        "Address": "https://huggingface.co/r-f/wav2vec-english-speech-emotion-recognition",
+        "To": "models/Float/"
+    }
+]

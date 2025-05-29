@@ -16,4 +16,6 @@ face_alignment>=1.4.1
 av>=12.0.0
 huggingface_hub
 gdown
+gitpython
+# gitpython For cloning GitHub repositories
 # gdown For downloading float.pth from Google Drive
