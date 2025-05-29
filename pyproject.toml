@@ -1,7 +1,7 @@
 [project]
 name = "Float_Animator"
 description = "Float project applicable to ComfyUI.Generates speaking portrait video frames from an image and audio.适用于ComfyUI的强大[FLOAT]项目，实现由肖像生成音频驱动的说话视频。"
-version = "1.1.1"
+version = "1.2.0"
 license = {file = "LICENSE"}
 dependencies = ["opencv-python", "pandas", "matplotlib", "flow-vis", "librosa", "transformers>=4.30.2", "albumentations>=1.4.15", "albucore>=0.0.16", "torchdiffeq>=0.2.5", "timm>=1.0.9", "face_alignment>=1.4.1", "av>=12.0.0", "huggingface_hub", "gdown", "# gdown For downloading float.pth from Google Drive"]
 
