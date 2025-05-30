@@ -23,20 +23,20 @@ import random
 import subprocess
 import datetime
 import tempfile
-import json # 用于解析 model_list.json
+import json 
 
 # 2. Third-party library imports
 import torch
 import numpy as np
-import cv2 # OpenCV for image processing
-import librosa # Audio processing, used as fallback
-import torchvision # For saving images (e.g., vutils.save_image)
-import torchaudio # Audio processing, preferred over librosa for robustness
+import cv2 
+import librosa 
+import torchvision 
+import torchaudio 
 import torchvision.utils as vutils
-import face_alignment # For face detection and landmarks
-import albumentations as A # Image augmentation/transforms
-import albumentations.pytorch.transforms as A_pytorch # Albumentations PyTorch transforms
-from transformers import Wav2Vec2FeatureExtractor # Audio feature extraction
+import face_alignment 
+import albumentations as A 
+import albumentations.pytorch.transforms as A_pytorch 
+from transformers import Wav2Vec2FeatureExtractor 
 
 # ComfyUI specific imports
 import comfy.model_management as mm
@@ -56,7 +56,7 @@ try:
     from model_download import model_download # 导入模型下载模块
 except ImportError as e:
     print(f"[ComfyUI_Float_Animator] 错误：无法导入核心 FLOAT 模块或模型下载模块。请检查 custom_nodes/ComfyUI_Float_Animator 目录结构和文件导入。错误信息: {e}")
-    # Define dummy classes to prevent hard crashes during import, but functional errors will occur
+    # Define dummy classes for graceful degradation if imports fail
     class FLOAT: pass
     class BaseModel: pass
     class BaseOptionsJson: pass
@@ -74,6 +74,10 @@ except ImportError as e:
             return None
 
 
+# --- Global Flags for UI Status (inspired by NodeSparkTTS.py) ---
+_FLOAT_MODELS_PRESENT_FOR_UI_STATUS: bool = False
+_FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION: bool = False
+
 # --- Helper function: Find ComfyUI root directory ---
 def _get_comfyui_root_dir():
     try:
@@ -88,6 +92,63 @@ def _get_comfyui_root_dir():
         if parent.name == "ComfyUI":
             return parent
     return None
+
+# --- Global Function for UI Status Check and Initial Download Trigger (inspired by NodeSparkTTS.py) ---
+def _perform_initial_float_model_check_for_ui_status():
+    global _FLOAT_MODELS_PRESENT_FOR_UI_STATUS, _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION
+    
+    comfyui_root = _get_comfyui_root_dir()
+    if not comfyui_root:
+        print("[ComfyUI_Float_Animator] 警告: 未能找到 ComfyUI 根目录。UI 状态可能不准确。")
+        _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = False
+        return
+
+    # Paths for core models to check their existence for UI status
+    float_models_base_dir_for_check = comfyui_root / "models" / "Float"
+    float_main_model_path_for_check = float_models_base_dir_for_check / "float.pth"
+    wav2vec2_model_dir_for_check = float_models_base_dir_for_check / "wav2vec2-base-960h"
+    wav2vec_emotion_model_dir_for_check = float_models_base_dir_for_check / "wav2vec-english-speech-emotion-recognition"
+
+    # Perform a check similar to _check_required_models_exist, but simplified for UI status
+    current_models_exist = (
+        float_main_model_path_for_check.is_file() and float_main_model_path_for_check.stat().st_size > 1024 * 1024 and # Check file exists and is reasonably large (e.g. >1MB)
+        wav2vec2_model_dir_for_check.is_dir() and any(wav2vec2_model_dir_for_check.iterdir()) and # Check dir exists and is not empty
+        wav2vec_emotion_model_dir_for_check.is_dir() and any(wav2vec_emotion_model_dir_for_check.iterdir())
+    )
+    
+    if not current_models_exist and not _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION:
+        print("[ComfyUI_Float_Animator] UI Status: 核心模型缺失。尝试在后台自动下载...")
+        if model_download and hasattr(model_download, 'main'):
+            try:
+                model_download.main() # Trigger the download
+                _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION = True
+                # Re-check status after download attempt
+                current_models_exist_after_download = (
+                    float_main_model_path_for_check.is_file() and float_main_model_path_for_check.stat().st_size > 1024 * 1024 and
+                    wav2vec2_model_dir_for_check.is_dir() and any(wav2vec2_model_dir_for_check.iterdir()) and
+                    wav2vec_emotion_model_dir_for_check.is_dir() and any(wav2vec_emotion_model_dir_for_check.iterdir())
+                )
+                _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = current_models_exist_after_download
+                if _FLOAT_MODELS_PRESENT_FOR_UI_STATUS:
+                    print("[ComfyUI_Float_Animator] UI Status: 自动下载成功完成。请刷新 ComfyUI 页面 (F5) 以加载模型。")
+                else:
+                    print("[ComfyUI_Float_Animator] UI Status: 已启动自动下载，但模型似乎仍缺失。请检查日志。")
+            except Exception as e:
+                print(f"[ComfyUI_Float_Animator] UI Status: 自动模型下载在 UI 初始化期间失败: {e}")
+                _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION = True # Mark as attempted regardless of success
+                _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = False # Ensure UI reflects missing state
+        else:
+            print("[ComfyUI_Float_Animator] UI Status: 模型下载模块不可用。跳过自动下载。")
+            _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION = True
+            _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = False
+    elif not current_models_exist and _FLOAT_DOWNLOAD_ATTEMPTED_THIS_SESSION:
+        print("[ComfyUI_Float_Animator] UI Status: 本次会话中，模型在上次尝试下载后仍缺失。刷新 ComfyUI 页面以重新检查。")
+        _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = False
+    else: # Models are present
+        _FLOAT_MODELS_PRESENT_FOR_UI_STATUS = True
+
+# Call this function once when the Node.py module is loaded (on ComfyUI start/refresh)
+_perform_initial_float_model_check_for_ui_status()
 
 
 # --- DataProcessor Class ---
@@ -153,8 +214,8 @@ class DataProcessor:
         y_start_actual = max(0, y_start)
         y_end_actual = min(img.shape[0], y_end)
         x_start_actual = max(0, x_start)
-        x_end_actual = min(img.shape[1], x_end)
-
+        x_end_actual = min(img.shape[1], img.shape[0]) # Adjusted x_end_actual to be min(img.shape[1], x_end) as well
+        
         crop_img = img[y_start_actual:y_end_actual, x_start_actual:x_end_actual]
         
         crop_img = cv2.copyMakeBorder(crop_img, pad_t, pad_b, pad_l, pad_r, cv2.BORDER_CONSTANT, value=0)
@@ -298,23 +359,15 @@ class Float_Animator:
         self.model_ready = False
         self.comfyui_root = _get_comfyui_root_dir()
 
-        if not self.comfyui_root:
-            print("[ComfyUI_Float_Animator] 警告: 未能找到 ComfyUI 根目录。请确保自定义节点放置在 ComfyUI/custom_nodes/ 目录下。")
-            self.float_models_base_dir = None
-            self.float_main_model_path = None
-            self.wav2vec2_model_dir = None
-            self.wav2vec_emotion_model_dir = None
-            return
-
-        self.float_models_base_dir = self.comfyui_root / "models" / "Float"
-        # 初始化路径，这些路径在 _initialize_float_core 中会被更新
-        self.float_main_model_path = self.float_models_base_dir / self.DEFAULT_FLOAT_MODEL_NAME
-        self.wav2vec2_model_dir = self.float_models_base_dir / "wav2vec2-base-960h"
-        self.wav2vec_emotion_model_dir = self.float_models_base_dir / "wav2vec-english-speech-emotion-recognition"
+        # Paths will be set by _initialize_float_core based on run-time check
+        self.float_models_base_dir = self.comfyui_root / "models" / "Float" if self.comfyui_root else None
+        self.float_main_model_path = None 
+        self.wav2vec2_model_dir = None 
+        self.wav2vec_emotion_model_dir = None 
 
     def _check_required_models_exist(self):
         # 读取 model_list.json 以获取所有需要检查的模型路径
-        model_list_path = current_node_dir / "model_download" / "model_list.json" # <--- 使用 .json
+        model_list_path = current_node_dir / "model_download" / "model_list.json" 
         if not model_list_path.exists():
             print(f"[ComfyUI_Float_Animator] 错误: {model_list_path.name} 文件未找到于 {model_list_path}。")
             return False
@@ -343,8 +396,9 @@ class Float_Animator:
             # 从 model_info['To'] 获取的路径是相对于 ComfyUI 根目录的
             relative_to_comfyui_path = Path(model_info['To'])
             
-            # 完整的目标路径： ComfyUI根目录 / model_info['To'] / model_name （如果是文件）
-            # 或者 ComfyUI根目录 / model_info['To'] / model_name （如果是文件夹）
+            if not self.comfyui_root: # If comfyui_root is not found, cannot check
+                all_exist = False
+                break
             
             # 判断 model_name 是文件还是文件夹
             is_file_download = Path(model_name).suffix != ''
@@ -354,8 +408,7 @@ class Float_Animator:
             else: # 如果是文件夹，目标路径是 ComfyUI/models/Float/wav2vec2-base-960h/
                 final_check_path = self.comfyui_root / relative_to_comfyui_path / model_name 
 
-            # 检查文件或非空文件夹是否存在。这里可以复用 model_download.py 中的检查逻辑
-            # 为了简化，我们只检查是否存在且非空
+            # 检查文件或非空文件夹是否存在。
             if not final_check_path.exists():
                 print(f"[ComfyUI_Float_Animator] 缺失模型文件或目录: {final_check_path}")
                 all_exist = False
@@ -366,7 +419,8 @@ class Float_Animator:
                 all_exist = False
                 break
             
-            if is_file_download and final_check_path.is_file() and final_check_path.stat().st_size < 1024 * 1024: # 假设文件小于1MB是异常
+            # 对于文件，检查大小是否合理（例如大于1MB）
+            if is_file_download and final_check_path.is_file() and final_check_path.stat().st_size < 1024 * 1024: 
                 print(f"[ComfyUI_Float_Animator] 文件 '{final_check_path}' 存在但大小异常（{final_check_path.stat().st_size / 1024:.2f} KB）。")
                 all_exist = False
                 break
@@ -374,53 +428,53 @@ class Float_Animator:
         return all_exist
 
     @classmethod
-    def INPUT_TYPES(s):
-        node_instance = s() # 创建实例以便调用方法
+    def INPUT_TYPES(cls): # Using 'cls' for class method
         
-        # 检查核心模型是否存在，影响下拉菜单的显示
-        required_models_exist = node_instance._check_required_models_exist()
+        # Use the global status flag directly for UI display
+        required_models_exist = _FLOAT_MODELS_PRESENT_FOR_UI_STATUS
         
+        node_instance = cls() # Create a temporary instance to access _get_available_float_models
         available_models = node_instance._get_available_float_models()
         
-        # 定义通用 tooltip
-        model_tooltip = "Select to run; the model will be automatically downloaded for the first time. Please wait. After completed, refresh the page to load the model."
+        # Default tooltip for the model dropdown
+        model_tooltip = "Data will be auto_downloaded for the first time. After completed, refresh the page to reload the list / 首次运行节点会自动下载数据，下载完成后刷新页面以加载列表"
 
         if not required_models_exist:
-            # 如果模型缺失，只显示下载提示，并将其作为默认值
-            available_models = [s.DOWNLOAD_PLACEHOLDER]
-            default_model = s.DOWNLOAD_PLACEHOLDER
+            # If models are missing, show download placeholder and make it default
+            available_models = [cls.DOWNLOAD_PLACEHOLDER]
+            default_model = cls.DOWNLOAD_PLACEHOLDER
         else:
-            # 如果模型存在，优先选择 DEFAULT_FLOAT_MODEL_NAME，如果不存在则选第一个
-            default_model = s.DEFAULT_FLOAT_MODEL_NAME
+            # If models are present, prioritize DEFAULT_FLOAT_MODEL_NAME
+            default_model = cls.DEFAULT_FLOAT_MODEL_NAME
             if default_model not in available_models and available_models:
                 default_model = available_models[0]
-            elif not available_models: # 极端情况：models/Float 目录存在但没有 .pth 文件
-                available_models = ["(未找到可用模型，请检查 models/Float 目录)"]
+            elif not available_models: # Edge case: models/Float dir exists but no .pth files
+                available_models = ["(No models found, check models/Float directory) / (未找到模型，请检查 models/Float 目录)"]
                 default_model = available_models[0]
 
         return {
             "required": {
-                "ref_image": ("IMAGE", {"image_upload": True, "tooltip": "The still portrait image to animate."}),
-                "audio": ("AUDIO", {"tooltip": "The driving audio to synchronize with the portrait."}),
-                "seed": ("INT", {"default": 15, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for reproducibility.", "widget": "random_seed"}),
-                "emotion": (['none', 'angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'], {"default": "none", "tooltip": "Specify a target emotion. 'none' uses emotion from audio."}),
-                "fps": ("FLOAT", {"default": 25.0, "min": 1.0, "max": 60.0, "step": 1.0, "round": 0.01, "tooltip": "Frames per second for the output animation."}),
-                "aud_cfg_scale": ("FLOAT", {"default": 2.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for audio control."}),
-                "ref_cfg_scale": ("FLOAT", {"default": 1.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for reference image control."}),
-                "emo_cfg_scale": ("FLOAT", {"default": 1.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for emotion control."}),
-                # 修改 model 参数，将 tooltip 移到此处
+                "ref_image": ("IMAGE", {"image_upload": True, "tooltip": "The still portrait image to animate. / 待动画化的静态肖像图像"}),
+                "audio": ("AUDIO", {"tooltip": "The driving audio for animation. / 驱动动画的音频"}),
+                "seed": ("INT", {"default": 15, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for reproducibility. / 结果可复现的随机种子", "widget": "random_seed"}),
+                "emotion": (['none', 'angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'], {"default": "none", "tooltip": "Target emotion style. 'none' infers from audio. / 目标情感风格。'none'从音频推断。"}),
+                "fps": ("FLOAT", {"default": 25.0, "min": 1.0, "max": 60.0, "step": 1.0, "round": 0.01, "tooltip": "Frames per second for output animation. / 输出动画的每秒帧数"}),
+                "aud_cfg_scale": ("FLOAT", {"default": 2.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for audio control. / 音频控制的无分类器引导尺度"}),
+                "ref_cfg_scale": ("FLOAT", {"default": 1.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for reference image control. / 参考图像控制的无分类器引导尺度"}),
+                "emo_cfg_scale": ("FLOAT", {"default": 1.0, "min": 1.0, "step": 0.1, "round": 0.01, "tooltip": "Classifier-free guidance scale for emotion control. / 情感控制的无分类器引导尺度"}),
                 "model": (available_models, {"default": default_model, "tooltip": model_tooltip}), 
-                "auto_crop": ("BOOLEAN", {"default": False, "tooltip": "Automatically crop the face in the reference image for optimal results."}),
-                # TODO: 如果需要用户控制 NFE，可以在这里添加一个 INT 参数
-                # "nfe": ("INT", {"default": 10, "min": 1, "max": 100, "step": 1, "tooltip": "Number of Function Evaluations (NFEs) for ODE solver."}),
+                "auto_crop": ("BOOLEAN", {"default": False, "tooltip": "Automatically crop face in reference image. / 自动裁剪参考图像中的人脸"}),
+                # "nfe": ("INT", {"default": 10, "min": 1, "max": 100, "step": 1, "tooltip": "Number of Function Evaluations (NFEs) for ODE solver. / ODE 求解器的函数评估次数。"}),
             },
         }
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT",)
-    RETURN_NAMES = ("animated_frames", "audio", "fps",)
+    RETURN_NAMES = ("animated_frames (IMAGE) / 动画帧 (图像)", 
+                    "audio (AUDIO) / 音频 (音频)", 
+                    "fps (FLOAT) / 每秒帧数 (浮点数)")
     FUNCTION = "animate_portrait"
     CATEGORY = "Animator"
-    DESCRIPTION = "Generates speaking portrait video frames from an image and audio using the FLOAT model."
+    DESCRIPTION = "Generates speaking portrait video frames from an image and audio using the FLOAT model. / 使用 FLOAT 模型从图像和音频生成说话肖像视频帧。"
 
     def _get_available_float_models(self):
         # 确保 float_models_base_dir 已正确设置
@@ -433,7 +487,6 @@ class Float_Animator:
 
     def _initialize_float_core(self, selected_model_option: str):
         # 根据 selected_model_option 确定实际要加载的模型文件名
-        # 如果用户选择了下载提示项，我们仍然尝试加载 DEFAULT_FLOAT_MODEL_NAME
         if selected_model_option == self.DOWNLOAD_PLACEHOLDER:
             actual_model_name = self.DEFAULT_FLOAT_MODEL_NAME
             print(f"[ComfyUI_Float_Animator] 提示: 选择了模型下载选项，将尝试加载默认模型 '{actual_model_name}'。")
@@ -451,6 +504,7 @@ class Float_Animator:
             raise Exception("[ComfyUI_Float_Animator] 错误：未能找到 ComfyUI 根目录。请确保自定义节点放置在 ComfyUI/custom_nodes/ 目录下。")
 
         # 更新模型路径以确保它们是最新的，基于实际要加载的模型名
+        self.float_models_base_dir = self.comfyui_root / "models" / "Float" # Ensure base dir is set correctly here
         self.float_main_model_path = self.float_models_base_dir / actual_model_name
         self.wav2vec2_model_dir = self.float_models_base_dir / "wav2vec2-base-960h"
         self.wav2vec_emotion_model_dir = self.float_models_base_dir / "wav2vec-english-speech-emotion-recognition"
@@ -470,7 +524,7 @@ class Float_Animator:
                 # 在自动下载失败时，仍然抛出错误以中断工作流
                 raise FileNotFoundError(f"[ComfyUI_Float_Animator] 模型文件仍缺失。请检查网络连接或手动运行 ComfyUI/custom_nodes/ComfyUI_Float_Animator/Model_Download.bat 下载所需模型。错误: {e}")
         
-        # 如果下载后模型仍然缺失，或者下载成功但选中的模型不是 float.pth，并且 float.pth 仍然缺失，需要特别处理
+        # 如果下载后模型仍然缺失
         if not required_models_check_passed:
              raise FileNotFoundError(f"[ComfyUI_Float_Animator] 自动下载后，所需核心模型仍缺失。请手动检查并确保以下文件存在: {self.float_main_model_path}, {self.wav2vec2_model_dir}, {self.wav2vec_emotion_model_dir}")
 
@@ -498,8 +552,6 @@ class Float_Animator:
         
         # 尝试初始化 FLOAT 核心。
         # 如果模型缺失或选择了下载占位符，_initialize_float_core 会触发下载或抛出异常。
-        # 传入的 `model` 参数是 UI 选择的字符串，它可能是真实模型名，也可能是下载占位符。
-        # 在 _initialize_float_core 内部会处理这个字符串，并总是尝试加载 DEFAULT_FLOAT_MODEL_NAME。
         self._initialize_float_core(model) 
 
         if not self.inference_core:
@@ -512,9 +564,7 @@ class Float_Animator:
         self.inference_core.opt.e_cfg_scale = emo_cfg_scale
         self.inference_core.opt.seed = seed
         self.inference_core.opt.no_crop = not auto_crop
-        # 如果在 INPUT_TYPES 中添加了 nfe 参数，这里也需要更新：
-        # self.inference_core.opt.nfe = nfe_from_input 
-        # 否则，使用 BaseOptionsJson 默认的 nfe=10
+        # If 'nfe' was added to INPUT_TYPES: self.inference_core.opt.nfe = nfe
 
         temp_working_dir = self.comfyui_root / "temp" / "float_animator_tmp"
         os.makedirs(temp_working_dir, exist_ok=True)
@@ -524,7 +574,7 @@ class Float_Animator:
         image_temp_path = temp_working_dir / f"reference_image_{timestamp_pid}.png"
 
         try:
-            # 确保音频波形是单声道且浮点类型
+            # Ensure audio waveform is mono and float32
             if audio['waveform'].dim() == 3: # (Batch, Channels, Samples)
                 audio_waveform_to_save = audio['waveform'].squeeze(0) # Remove batch dim
             elif audio['waveform'].dim() == 2: # (Channels, Samples)
@@ -532,14 +582,14 @@ class Float_Animator:
             else:
                 raise ValueError("[ComfyUI_Float_Animator] 不支持的音频波形维度。Expected (Batch, Channels, Samples) or (Channels, Samples).")
             
-            # 如果是多声道，转为单声道（取平均）
+            # If multi-channel, convert to mono (by averaging)
             if audio_waveform_to_save.shape[0] > 1:
                 audio_waveform_to_save = torch.mean(audio_waveform_to_save, dim=0, keepdim=True)
             
             if audio_waveform_to_save.dtype != torch.float32:
                  audio_waveform_to_save = audio_waveform_to_save.to(torch.float32)
             
-            # 归一化音频到 [-1, 1]
+            # Normalize audio to [-1, 1]
             if audio_waveform_to_save.max() > 1.0 or audio_waveform_to_save.min() < -1.0:
                 audio_waveform_to_save = audio_waveform_to_save / max(audio_waveform_to_save.abs().max().item(), 1.0)
 
@@ -563,7 +613,7 @@ class Float_Animator:
                 r_cfg_scale=ref_cfg_scale,
                 e_cfg_scale=emo_cfg_scale,
                 emo=None if emotion == "none" else emotion,
-                nfe=10, # 使用 BaseOptionsJson 默认值，如果需要用户控制请在 INPUT_TYPES 中添加参数
+                nfe=10, # Using BaseOptionsJson default
                 no_crop=not auto_crop,
                 seed=seed,
                 verbose=True
@@ -571,13 +621,13 @@ class Float_Animator:
             print(f"[ComfyUI_Float_Animator] FLOAT 推理完成。输出帧形状: {animated_output_frames.shape}")
 
         finally:
-            # 清理临时文件
+            # Clean up temporary files
             if os.path.exists(audio_temp_path):
                 os.remove(audio_temp_path)
             if os.path.exists(image_temp_path):
                 os.remove(image_temp_path)
 
-            # 模型卸载到CPU以释放VRAM
+            # Offload model to CPU to free VRAM
             if self.inference_core and self.inference_core.G:
                 self.inference_core.G.to(mm.unet_offload_device())
                 mm.soft_empty_cache()

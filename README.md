@@ -64,7 +64,8 @@ A custom node package for ComfyUI that integrates the powerful [FLOAT](https://g
 
 ## 📥 Model and Data Setup
 
-The FLOAT model and its associated data **must be placed in specific default locations** for the node to function correctly. When the `Float_Animator` node is first run, it will automatically download any missing required models. If automatic download fails, you can manually run the provided batch script.
+The FLOAT model and its associated data **must be placed in specific default locations** for the node to function correctly. **This node package now supports automatic model download when the node is executed for the first time or if models are missing.** You can also use the `Model_Download.bat` script provided with this node package to download and place them automatically beforehand.
+
 
 1.  **Model Location:**
     The `float.pth` main model, `wav2vec2-base-960h` folder, and `wav2vec-english-speech-emotion-recognition` folder must be located at: `ComfyUI/models/Float/`
@@ -73,7 +74,7 @@ The FLOAT model and its associated data **must be placed in specific default loc
 	`wav2vec-english-speech-emotion-recognition`: https://huggingface.co/r-f/wav2vec-english-speech-emotion-recognition
 
 2.  **Automatic Download (Node Execution):**
-    Simply run the `Float_Animator` node in ComfyUI. If the required models are not found, the node will initiate their download automatically.
+    Simply open the `Float_Animator` node in ComfyUI. If the required models are not found, the node will initiate their download automatically.
 
 3.  **Manual Download (Optional / Troubleshooting):**
     If the automatic download within ComfyUI fails, or you prefer to pre-download models, navigate to the `ComfyUI_Float_Animator` directory and run the provided batch script:
@@ -218,7 +219,7 @@ We are grateful to the original authors for their valuable contributions and for
 
 ## 📥 模型和数据设置
 
-FLOAT 模型及其相关数据**必须放置在特定的默认位置**，节点才能正常工作。`Float_Animator` 节点首次运行时，如果检测到所需模型缺失，将**自动**进行下载。如果自动下载失败，您可以选择手动运行提供的批处理脚本。
+FLOAT 模型及其相关数据**必须放置在特定的默认位置**，节点才能正常工作。此节点包现在支持**在首次加载节点或模型缺失时自动下载模型**。 你也可以使用此节点包提供的 Model_Download.bat 脚本预先自动下载并放置模型。
 
 1.  **模型位置：**
     `float.pth` 主模型、`wav2vec2-base-960h` 文件夹和 `wav2vec-english-speech-emotion-recognition` 文件夹必须位于：`ComfyUI/models/Float/`
@@ -227,7 +228,7 @@ FLOAT 模型及其相关数据**必须放置在特定的默认位置**，节点�
 	`wav2vec-english-speech-emotion-recognition`：https://huggingface.co/r-f/wav2vec-english-speech-emotion-recognition
 
 2.  **节点内自动下载：**
-    在 ComfyUI 中加载工作流并运行 `Float_Animator` 节点。节点会自动检查并下载所需的模型。请耐心等待下载完成，这可能需要一段时间。下载完成后，您可以重新加载页面或刷新节点以确保模型被正确加载。
+    在 ComfyUI 中加载工作流 `Float_Animator` 节点。节点会自动检查并下载所需的模型。请耐心等待下载完成，这可能需要一段时间。下载完成后，您可以重新加载页面或刷新节点以确保模型被正确加载。
 
 3.  **手动下载（可选/故障排除）：**
     如果节点内的自动下载过程失败，或者您希望提前下载所有模型，请导航到 `ComfyUI_Float_Animator` 目录并运行提供的批处理脚本：
