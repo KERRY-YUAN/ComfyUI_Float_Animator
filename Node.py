@@ -214,7 +214,7 @@ class DataProcessor:
         y_start_actual = max(0, y_start)
         y_end_actual = min(img.shape[0], y_end)
         x_start_actual = max(0, x_start)
-        x_end_actual = min(img.shape[1], img.shape[0]) # Adjusted x_end_actual to be min(img.shape[1], x_end) as well
+        x_end_actual = min(img.shape[1], x_end) # Adjusted x_end_actual to be min(img.shape[1], x_end) as well
         
         crop_img = img[y_start_actual:y_end_actual, x_start_actual:x_end_actual]
         
@@ -469,9 +469,7 @@ class Float_Animator:
         }
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT",)
-    RETURN_NAMES = ("animated_frames (IMAGE) / 动画帧 (图像)", 
-                    "audio (AUDIO) / 音频 (音频)", 
-                    "fps (FLOAT) / 每秒帧数 (浮点数)")
+    RETURN_NAMES = ("animated_frames", "audio", "fps",) # Reverted to English-only output names
     FUNCTION = "animate_portrait"
     CATEGORY = "Animator"
     DESCRIPTION = "Generates speaking portrait video frames from an image and audio using the FLOAT model. / 使用 FLOAT 模型从图像和音频生成说话肖像视频帧。"
