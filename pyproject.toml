@@ -1,5 +1,5 @@
 [project]
-name = "Float_Animator"
+name = "ComfyUI_Float_Animator"
 description = "Float project applicable to ComfyUI.Generates speaking portrait video frames from an image and audio.适用于ComfyUI的强大[FLOAT]项目，实现由肖像生成音频驱动的说话视频。"
 version = "1.4.0"
 license = {file = "LICENSE"}
