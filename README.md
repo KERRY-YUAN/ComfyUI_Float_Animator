@@ -2,9 +2,6 @@
 
 A custom node package for ComfyUI that integrates the powerful [FLOAT](https://github.com/deepbrainai-research/float) project, enabling audio-driven talking portrait video generation directly within your ComfyUI workflow.
 
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/36626b4a-d3e5-4db9-87a7-ca0e949daee0" /> <!-- Reference to an example video -->
-</div>
 
 ---
 ---
